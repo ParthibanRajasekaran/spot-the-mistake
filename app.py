@@ -99,11 +99,11 @@ TEMPLATE = '''
     <button id="themeToggleOverlay" class="theme-btn" aria-pressed="false"><span class="icon"></span></button>
     <canvas id="matCanvas"></canvas>
     <div class="msg" id="msg">
-      <p>Just as this tiny glitch was tough to spot, validating compatibility across 20+ configurations every release can be monumental.</p>
+      <p>Just as this tiny glitch was tough to spot, validating compatibility across 20+ configurations every release can be monumental</p>
       
-      <p>We cut 3 days of manual testing down to under 10 minutes of automated checks.</p>
+      <p>We've slashed 3 days of intense manual testing down to under 10 minutes of automated checks</p>
       
-      <p>Curious? Talk to our team at Big Picture and see how we delivered flawless, lightning-fast launches!</p>
+      <p>Curious to learn more? Talk to our team at Big Picture and see how we delivered flawless, lightning-fast launches!</p>
     </div>
   </div>
   <script>

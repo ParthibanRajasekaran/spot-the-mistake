@@ -1,194 +1,410 @@
 from flask import Flask, render_template_string, jsonify
 import random
 
-rows, cols = 20, 20
-decoys = 12
-char_pool = list('?@#%&*"ABCDEFGHIJKLMNOPQRSTUVWXYZ')
-rot_min, rot_max = 10, 35  # 10–35° rotation
+# ───── CONFIG ────────────────────────────────────────────────────────────────
+rows, cols   = 15, 15
+char_pool    = list('?@#%&*"ABCDEFGHIJKLMNOPQRSTUVWXYZ')
+rot_min, rot_max = 10, 35  # degrees
 
 app = Flask(__name__)
 
+# ───── TEMPLATE ───────────────────────────────────────────────────────────────
 TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spot the Mistake</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Spot the Glitch</title>
   <style>
-    /* Theme variables */
-    :root { --bg: #000; --fg: #0f0; --btn-bg: #111; --btn-border: #0f0; }
-    [data-theme="light"] { --bg: #fff; --fg: #000; --btn-bg: #eee; --btn-border: #000; }
-
-    :root { --grid-size: min(80vmin,80vh); --cell-size: calc(var(--grid-size)/{{rows}}); }
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { background: var(--bg); color: var(--fg); font-family:'Courier New',monospace;
-           display:flex; justify-content:center; transition:background .3s, color .3s; }
-    #app { display:flex; flex-direction:column; align-items:center; padding:1rem; }
-    header { display:flex; align-items:center; justify-content:center; width:100%; margin-bottom:1rem; }
-    header h1 { font-size:2rem; letter-spacing:0.1em; }
-
-    /* Theme toggle button now in header */
-    .theme-btn { position:relative; margin-left:1rem;
-                 width:3rem; height:1.5rem; background:var(--btn-bg);
-                 border:1px solid var(--btn-border); border-radius:.75rem;
-                 cursor:pointer; display:flex; align-items:center; padding:0 .25rem;
-                 transition:background .3s, border-color .3s; }
-    .theme-btn .icon { width:1rem; height:1rem; background:var(--fg);
-                       border-radius:50%; transition:transform .3s, background .3s; }
-    .theme-btn.pressed .icon { transform:translateX(1.5rem); }
-
-    .board { display:flex; }
-    .controls { display:flex; flex-direction:column; margin-right:1rem; }
-    .controls button { background:var(--btn-bg); border:1px solid var(--btn-border);
-                       color:var(--fg); margin:0.5rem 0; padding:0.5rem 1rem;
-                       cursor:pointer; transition:background .2s; }
-    .controls button:hover { background: var(--btn-border); color: var(--bg); }
-
-    #grid { display:grid; grid-template-columns:repeat({{cols}},1fr);
-             border:2px solid var(--fg); width:var(--grid-size); height:var(--grid-size); }
-    .cell { display:flex; align-items:center; justify-content:center;
-            font-size:0.8rem; cursor:pointer; transition:transform .2s, background .3s; }
-    .rain .cell { animation:rain 1s linear infinite; }
-    .highlight { background:blue; color:#000; }
-    @keyframes rain { 0%{transform:translateY(-100%);opacity:0;}10%{opacity:1;}100%{transform:translateY(100%);opacity:0;} }
-
-    #hint { margin-top:1rem; font-size:1rem; }
-    #overlay {
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.85);
-      transition: background .3s;
+    /* ─── Full-screen GIF bg + tint ─────────────────────────────────────────── */
+    body {
+      margin:0;
+      background: url("{{ url_for('static', filename='bg_dark.gif') }}") center/cover no-repeat;
+      transition: background-image .5s ease;
     }
-    [data-theme="light"] #overlay { background: rgba(255,255,255,0.85); }
+    body[data-theme="light"] {
+      background: url("{{ url_for('static', filename='bg_light.gif') }}") center/cover no-repeat;
+    }
+    body::before {
+      content:""; position:fixed; inset:0;
+      background: rgba(0,0,0,0.6);
+      z-index:0; transition: background .5s;
+    }
+    body[data-theme="light"]::before {
+      background: rgba(255,255,255,0.6);
+    }
+    #app, #overlay { position:relative; z-index:1; }
 
-    #overlay canvas { position:absolute; width:100%; height:100%; }
-    #overlay .msg { position:relative; color:var(--fg); font-size:1.5rem;
-                    max-width:60%; line-height:1.6; white-space:pre-wrap;
-                    padding:1rem; background:rgba(0,0,0,0.6);
-                    border:1px solid var(--fg); opacity:0; transform:scale(0.8);
-                    transition:opacity .5s, transform .5s; text-align:center; }
-    [data-theme="light"] #overlay .msg { background:rgba(255,255,255,0.8); color:var(--fg); }
-    #overlay .msg p { margin:0.5em 0; }
-    #overlay .msg.visible { opacity:1; transform:scale(1); }
+    /* ─── Theme variables ─────────────────────────────────────────────────── */
+    :root {
+      --bg: #000; --fg: #0f0;
+      --btn-bg: #111; --btn-border: #0f0;
+    }
+    [data-theme="light"] {
+      --bg: #fff; --fg: #000;
+      --btn-bg: #eee; --btn-border: #000;
+    }
+
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      color: var(--fg);
+      font-family:'Courier New',monospace;
+      display:flex; flex-direction:column; align-items:center;
+      transition: color .3s;
+    }
+
+    /* ─── Header + Toggle ─────────────────────────────────────────────────── */
+    header {
+      display:flex; align-items:center; margin:1rem 0;
+    }
+    header h1 {
+      font-size:2.5rem; letter-spacing:.1em;
+    }
+    .theme-btn {
+      width:56px; height:32px; padding:4px;
+      background:var(--btn-bg); border:2px solid var(--btn-border);
+      border-radius:16px; position:relative; cursor:pointer;
+      transition:background .3s,border-color .3s;
+      margin-left:1rem;
+    }
+    .theme-btn .icon {
+      width:20px; height:20px; border-radius:50%;
+      background:var(--fg); position:absolute; top:4px; left:4px;
+      transition:left .3s ease;
+    }
+    .theme-btn.pressed .icon {
+      left: calc(100% - 4px - 20px);
+    }
+
+    /* ─── Devices & Labels ─────────────────────────────────────────────────── */
+    .devices {
+      display:flex; align-items:flex-start; gap:2rem;
+    }
+    .device-wrapper {
+      display:flex; flex-direction:column; align-items:center;
+    }
+    .device-label {
+      font-weight:bold; margin-bottom:.5rem;
+    }
+    .device {
+      --w:320px; --h:calc(var(--w)*(844/390));
+      width:var(--w); height:var(--h);
+      border:6px solid var(--btn-border);
+      border-radius:2rem; background:#111;
+      position:relative; overflow:hidden;
+    }
+    .device.ipad {
+      --w:400px; --h:calc(var(--w)*(1024/768));
+      border-radius:1rem;
+    }
+    .device::before {
+      content:""; position:absolute; top:8px; left:50%;
+      width:40px; height:6px; background:#444;
+      border-radius:3px; transform:translateX(-50%);
+    }
+    [data-theme="light"] .device {
+      background:var(--bg)!important;
+      border-color:var(--fg)!important;
+    }
+    [data-theme="light"] .device::before {
+      background:#888!important;
+    }
+
+    /* ─── Vertical Controls ───────────────────────────────────────────────── */
+    .controls-vertical {
+      display:flex; flex-direction:column; gap:1rem;
+      margin-top:2rem;
+    }
+    .controls-vertical button {
+      width:100px; background:var(--btn-bg);
+      color:var(--fg); border:2px solid var(--btn-border);
+      padding:.5rem; cursor:pointer;
+      transition:background .2s, color .2s;
+    }
+    .controls-vertical button:hover {
+      background:var(--btn-border); color:var(--bg);
+    }
+
+    /* ─── Grid & Cells ───────────────────────────────────────────────────── */
+    .grid {
+      position:absolute; top:20px; left:0;
+      width:100%; height:calc(100% - 20px);
+      display:grid;
+      grid-template-columns:repeat({{cols}},1fr);
+      grid-template-rows:   repeat({{rows}},1fr);
+    }
+    .cell {
+      display:flex; align-items:center; justify-content:center;
+      color:var(--fg);
+      font-size:calc(var(--w)/{{cols}}*0.8);
+      transition:transform .2s, background .3s;
+      cursor:pointer;
+    }
+    .rain .cell { animation:rain 1s linear infinite; }
+    .highlight { background:blue!important; color:black!important; }
+    @keyframes rain {
+      0%   { transform:translateY(-100%); opacity:0; }
+      10%  { opacity:1; }
+      100% { transform:translateY(100%); opacity:0; }
+    }
+
+    /* ─── Overlay + Matrix Rain ───────────────────────────────────────────── */
+    #overlay {
+      display:none; position:fixed; inset:0;
+      background:rgba(0,0,0,0.85);
+      align-items:center; justify-content:center;
+      flex-direction:column; z-index:2;
+    }
+    [data-theme="light"] #overlay {
+      background:rgba(255,255,255,0.85);
+    }
+    #matCanvas {
+      position:absolute; inset:0;
+    }
+    #msg {
+      position:relative; z-index:3;
+      background:rgba(0,0,0,0.7);
+      color:var(--fg);
+      padding:2rem; border:2px solid var(--fg);
+      border-radius:.5rem; max-width:60%;
+      font-size:1.25rem; line-height:1.4;
+      opacity:0; transform:scale(0.8);
+      transition:opacity .5s, transform .5s;
+      text-align:center; margin-top:1rem;
+    }
+    [data-theme="light"] #msg {
+      background:rgba(255,255,255,0.9);
+    }
+    #msg.visible {
+      opacity:1; transform:scale(1);
+    }
+    #msg p {
+      margin-bottom: 1rem;          /* space between paragraphs */
+    }
   </style>
 </head>
-<body>
+<body data-theme="">
   <div id="app">
     <header>
-      <h1>Spot the Mistake</h1>
-      <button id="themeToggle" class="theme-btn" aria-pressed="false"><span class="icon"></span></button>
+      <h1>Spot the Glitch</h1>
+      <button id="themeToggle" class="theme-btn" aria-pressed="false">
+        <span class="icon"></span>
+      </button>
     </header>
-    <div class="board">
-      <div class="controls">
+
+    <div class="devices">
+      <div class="device-wrapper">
+        <div class="device-label">iPad</div>
+        <div class="device ipad">
+          <div class="grid" id="grid-ipad"></div>
+        </div>
+      </div>
+
+      <div class="device-wrapper">
+        <div class="device-label">iPhone 14 Pro</div>
+        <div class="device phone">
+          <div class="grid" id="grid-iphone"></div>
+        </div>
+      </div>
+
+      <div class="controls-vertical">
         <button id="btnGen">Generate</button>
         <button id="btnAns">Answer</button>
       </div>
-      <div id="grid"></div>
     </div>
-    <div id="hint"></div>
   </div>
+
   <div id="overlay">
-    <button id="themeToggleOverlay" class="theme-btn" aria-pressed="false"><span class="icon"></span></button>
     <canvas id="matCanvas"></canvas>
-    <div class="msg" id="msg">
-      <p>Just as this tiny glitch was tough to spot, validating compatibility across 20+ configurations every release can be monumental</p>
-      
-      <p>We've slashed 3 days of intense manual testing down to under 10 minutes of automated checks</p>
-      
-      <p>Curious to learn more? Talk to our team at Big Picture and see how we delivered flawless, lightning-fast launches!</p>
+    <button id="themeToggleOverlay" class="theme-btn" aria-pressed="false">
+      <span class="icon"></span>
+    </button>
+    <div id="msg">
+      <p>If uncovering one tiny glitch feels impossible, imagine the headache of manually validating every device, OS and browser combination then re-executing your entire suite after every single fix. That’s a monumental drag on every release.</p>
+      <p>We have slashed 3 days of grueling manual QA down to under 10 minutes of automation.</p>
+      <p>Ready to stop sweating about compatibility and start shipping flawless, lightning-fast deliverables? Chat with our Big Picture team today.</p>
     </div>
   </div>
+
   <script>
-    const char_pool = {{ char_pool|tojson }};
-    const rows = {{rows}}, cols = {{cols}};
-    let current = null;
+    document.addEventListener('DOMContentLoaded', () => {
+      const char_pool = {{ char_pool|tojson }};
+      const rows = {{rows}}, cols = {{cols}};
+      let current = null;
 
-    function applyTheme(isLight) {
-      if (isLight) document.documentElement.setAttribute('data-theme','light');
-      else document.documentElement.removeAttribute('data-theme');
+      // theme helpers
+      function isLight() {
+        return document.body.dataset.theme === 'light';
+      }
+      function applyTheme(light) {
+        document.body.dataset.theme = light ? 'light' : '';
+        ['themeToggle','themeToggleOverlay'].forEach(id => {
+          const btn = document.getElementById(id);
+          btn.classList.toggle('pressed', light);
+          btn.setAttribute('aria-pressed', light);
+        });
+      }
+
+      // wire up toggles
       ['themeToggle','themeToggleOverlay'].forEach(id => {
-        const btn = document.getElementById(id);
-        btn.classList.toggle('pressed', isLight);
-        btn.setAttribute('aria-pressed', isLight);
+        document.getElementById(id)
+          .addEventListener('click', () => {
+            const light = !isLight();
+            localStorage.setItem('theme', light ? 'light' : '');
+            applyTheme(light);
+          });
       });
-    }
-    window.addEventListener('load', () => {
-      const saved = localStorage.getItem('theme') === 'light';
-      applyTheme(saved);
-      updateGridSize(); initMatrix(); document.getElementById('btnGen').click();
-    });
-    ['themeToggle','themeToggleOverlay'].forEach(id => {
-      document.getElementById(id).addEventListener('click', () => {
-        const isLight = !document.documentElement.hasAttribute('data-theme');
-        applyTheme(isLight);
-        if (isLight) localStorage.setItem('theme','light');
-        else localStorage.removeItem('theme');
-      });
-    });
-    async function fetchPattern() { const res = await fetch('/generate'); current = await res.json(); return current; }
-    function render(info) {
-      const grid = document.getElementById('grid'); grid.innerHTML = '';
-      document.getElementById('hint').textContent = '';
-      document.getElementById('overlay').style.display = 'none';
-      document.getElementById('msg').classList.remove('visible');
-      const cellSize = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cell-size'));
-      info.pattern.forEach((row,r) => row.forEach((ch,c) => {
-        const cell = document.createElement('div'); cell.className='cell'; cell.textContent=ch;
-        const d = info.decoys.find(x=>x.r===r&&x.c===c);
-        if(d) cell.style.transform=`translateY(${d.off*cellSize}px)`;
-        if(r===info.target[0]&&c===info.target[1]) cell.style.transform=`rotate(${info.angle.toFixed(1)}deg)`;
-        grid.appendChild(cell);
-      }));
-    }
-    const canvas = document.getElementById('matCanvas'), ctx = canvas.getContext('2d');
-    let drops=[], colCount=0, fontSize=16, anim;
-    function initMatrix(){ canvas.width=window.innerWidth; canvas.height=window.innerHeight; colCount=Math.floor(canvas.width/fontSize); drops=Array(colCount).fill(0); }
-    function drawMatrix(){
-      const theme = document.documentElement.hasAttribute('data-theme') ? 'light' : 'dark';
-      const trail = theme==='light'? 'rgba(255,255,255,0.1)': 'rgba(0,0,0,0.1)';
-      ctx.fillStyle = trail; ctx.fillRect(0,0,canvas.width,canvas.height);
-      const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim();
-      ctx.fillStyle = fg; ctx.font = fontSize+'px monospace';
-      for(let i=0;i<colCount;i++){ const txt=char_pool[Math.floor(Math.random()*char_pool.length)]; const x=i*fontSize,y=drops[i]*fontSize; ctx.fillText(txt,x,y); drops[i]+=8; if(y>canvas.height&&Math.random()>.975)drops[i]=0; }
-      anim = requestAnimationFrame(drawMatrix);
-    }
-    function startMatrix(){ initMatrix(); drawMatrix(); }
-    function typeMessage(){ const el=document.getElementById('msg'); el.classList.add('visible'); const text=el.textContent; el.textContent=''; let i=0; (function tick(){ if(i<text.length){el.textContent+=text[i++]; setTimeout(tick,40);} })(); }
 
-    document.getElementById('btnGen').onclick=async()=>{const info=await fetchPattern();render(info);document.getElementById('grid').classList.add('rain');setTimeout(()=>document.getElementById('grid').classList.remove('rain'),1000);};
-    document.getElementById('btnAns').onclick=()=>{if(!current)return;Array.from(document.getElementById('grid').children).forEach(c=>c.classList.remove('highlight'));const idx=current.target[0]*cols+current.target[1];document.getElementById('grid').children[idx].classList.add('highlight');document.getElementById('hint').textContent=`Rotated '${current.char}' at (row ${current.target[0]+1}, col ${current.target[1]+1}) by ${current.angle.toFixed(1)}°.`;};
-    document.getElementById('grid').onclick=e=>{if(!e.target.classList.contains('cell')||!current)return;const idx=[...document.getElementById('grid').children].indexOf(e.target);const r=Math.floor(idx/cols),c=idx%cols;if(r===current.target[0]&&c===current.target[1]){document.getElementById('overlay').style.display='flex';startMatrix();setTimeout(typeMessage,800);}};
-    window.onresize=()=>{updateGridSize();initMatrix();};
-    function updateGridSize(){const size=Math.min(window.innerWidth*0.8,window.innerHeight*0.8);document.documentElement.style.setProperty('--grid-size',size+'px');}
+      // initialize
+      applyTheme(localStorage.getItem('theme') === 'light');
+      document.getElementById('btnGen').click();
+
+      // fetch pattern
+      async function fetchPattern() {
+        const res = await fetch('/generate');
+        return current = await res.json();
+      }
+
+      // draw grids + random glitch
+      async function generateGrid() {
+        const info = await fetchPattern();
+        info.glitchDevice = Math.random() < 0.5 ? 'ipad' : 'iphone';
+
+        ['ipad','iphone'].forEach(dev => {
+          const grid = document.getElementById('grid-'+dev);
+          grid.innerHTML = '';
+          info.pattern.forEach((row, r) => {
+            row.forEach((ch, c) => {
+              const cell = document.createElement('div');
+              cell.className = 'cell';
+              cell.textContent = ch;
+              if (
+                dev === info.glitchDevice &&
+                r === info.target[0] &&
+                c === info.target[1]
+              ) {
+                cell.style.transform = `rotate(${info.angle.toFixed(1)}deg)`;
+              }
+              grid.appendChild(cell);
+            });
+          });
+        });
+
+        // hide any prior overlay
+        document.getElementById('overlay').style.display = 'none';
+        document.getElementById('msg').classList.remove('visible');
+        document.getElementById('btnAns').disabled = false;
+      }
+      document.getElementById('btnGen').addEventListener('click', generateGrid);
+
+      // highlight on Answer
+      document.getElementById('btnAns').addEventListener('click', () => {
+        if (!current) return;
+        const dev = current.glitchDevice;
+        const cells = document.getElementById('grid-'+dev).children;
+        Array.from(cells).forEach(c => c.classList.remove('highlight'));
+        const idx = current.target[0]*cols + current.target[1];
+        cells[idx].classList.add('highlight');
+      });
+
+      // click-to-show overlay
+      ['ipad','iphone'].forEach(dev => {
+        document.getElementById('grid-'+dev)
+          .addEventListener('click', e => {
+            if (!e.target.classList.contains('cell') || !current) return;
+            if (dev !== current.glitchDevice) return;
+            const idx = [...e.target.parentNode.children].indexOf(e.target);
+            if (idx === current.target[0]*cols + current.target[1]) {
+              showOverlay();
+            }
+          });
+      });
+
+      // MATRIX RAIN
+      const canvas = document.getElementById('matCanvas'),
+            ctx    = canvas.getContext('2d');
+      let drops = [], colCount = 0, fontSize = 16;
+
+      function initMatrix() {
+        canvas.width  = window.innerWidth;
+        canvas.height = window.innerHeight;
+        colCount = Math.floor(canvas.width / fontSize);
+        drops    = Array(colCount).fill(0);
+      }
+      function drawMatrix() {
+        const fade = isLight()
+          ? 'rgba(255,255,255,0.1)'
+          : 'rgba(0,0,0,0.1)';
+        ctx.fillStyle = fade;
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        const fg = getComputedStyle(document.documentElement)
+                     .getPropertyValue('--fg').trim();
+        ctx.fillStyle = fg;
+        ctx.font = fontSize + 'px monospace';
+        for (let i=0; i<colCount; i++) {
+          const txt = char_pool[
+            Math.floor(Math.random()*char_pool.length)
+          ];
+          const x = i*fontSize, y = drops[i]*fontSize;
+          ctx.fillText(txt, x, y);
+          drops[i] += 8;
+          if (y > canvas.height && Math.random() > .975) drops[i] = 0;
+        }
+        requestAnimationFrame(drawMatrix);
+      }
+      function showOverlay() {
+        document.getElementById('overlay').style.display = 'flex';
+        initMatrix();
+        drawMatrix();
+        setTimeout(()=>
+          document.getElementById('msg').classList.add('visible'),
+        600);
+      }
+      window.addEventListener('resize', initMatrix);
+
+    });
   </script>
 </body>
 </html>
 '''
 
 @app.route('/')
-def index(): return render_template_string(TEMPLATE, rows=rows, cols=cols, char_pool=char_pool)
+def index():
+    return render_template_string(
+        TEMPLATE,
+        rows=rows,
+        cols=cols,
+        char_pool=char_pool
+    )
 
 @app.route('/generate')
 def generate():
-    pattern=[[random.choice(char_pool) for _ in range(cols)] for _ in range(rows)]
-    weights=[1/(((r-(rows-1)/2)**2+(c-(cols-1)/2)**2)+1) for r in range(rows) for c in range(cols)]
-    idx=random.choices(range(rows*cols),weights)[0]
-    tr,tc=divmod(idx,cols)
-    while True:
-        angle=random.uniform(-rot_max,rot_max)
-        if abs(angle)>=rot_min: break
-    glitch={'type':'rotate','angle':angle}
-    others=[(r,c) for r in range(rows) for c in range(cols) if (r,c)!=(tr,tc)]
-    decs=[{'r':r,'c':c,'off':random.uniform(-0.05,0.05)} for r,c in random.sample(others,decoys)]
-    info={'pattern':pattern,'target':[tr,tc],'char':pattern[tr][tc],'decoys':decs,**glitch}
-    return jsonify(info)
+    # build 15×15 grid
+    pattern = [
+      [random.choice(char_pool) for _ in range(cols)]
+      for _ in range(rows)
+    ]
 
-if __name__=='__main__': app.run(debug=True,port=5000)
+    # center-bias weights
+    weights = [
+      1/(((r-(rows-1)/2)**2 + (c-(cols-1)/2)**2)+1)
+      for r in range(rows) for c in range(cols)
+    ]
+    idx = random.choices(range(rows*cols), weights)[0]
+    tr, tc = divmod(idx, cols)
+
+    # pick a big enough rotation
+    while True:
+      angle = random.uniform(-rot_max, rot_max)
+      if abs(angle) >= rot_min: break
+
+    return jsonify({
+      'pattern': pattern,
+      'target':  [tr, tc],
+      'char':    pattern[tr][tc],
+      'angle':   angle
+    })
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)

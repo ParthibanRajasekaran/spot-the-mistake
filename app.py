@@ -223,7 +223,7 @@ TEMPLATE = '''
     <div id="msg">
       <p>If uncovering one tiny glitch feels impossible, imagine the headache of manually validating every device, OS and browser combination then re-executing your entire suite after every single fix. That’s a monumental drag on every release.</p>
       <p>We have slashed 3 days of grueling manual QA down to under 10 minutes of automation.</p>
-      <p>Ready to stop sweating about compatibility and start shipping flawless, lightning-fast deliverables? Chat with our Big Picture team today.</p>
+      <p>Ready to stop sweating about compatibility and start shipping flawless, lightning-fast deliverables? Chat with our team today @ Big Picture</p>
     </div>
   </div>
 

@@ -1,9 +1,9 @@
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template_string, jsonify, url_for
 import random
 
 # ───── CONFIG ────────────────────────────────────────────────────────────────
-rows, cols   = 15, 15
-char_pool    = list('?@#%&*"ABCDEFGHIJKLMNOPQRSTUVWXYZ')
+rows, cols      = 15, 15
+char_pool       = list('?@#%&*"ABCDEFGHIJKLMNOPQRSTUVWXYZ')
 rot_min, rot_max = 10, 35  # degrees
 
 app = Flask(__name__)
@@ -16,6 +16,10 @@ TEMPLATE = '''
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Spot the Glitch</title>
+
+  <!-- Matrix-y font -->
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+
   <style>
     /* ─── Full-screen GIF bg + tint ─────────────────────────────────────────── */
     body {
@@ -111,19 +115,65 @@ TEMPLATE = '''
       background:#888!important;
     }
 
-    /* ─── Vertical Controls ───────────────────────────────────────────────── */
+    /* ─── Vertical Controls (modern button-64) ─────────────────────────────── */
     .controls-vertical {
       display:flex; flex-direction:column; gap:1rem;
       margin-top:2rem;
     }
-    .controls-vertical button {
-      width:100px; background:var(--btn-bg);
-      color:var(--fg); border:2px solid var(--btn-border);
-      padding:.5rem; cursor:pointer;
-      transition:background .2s, color .2s;
+
+    /* hide the old plain buttons if any */
+    .controls-vertical button:not(.button-64) {
+      display: none;
     }
-    .controls-vertical button:hover {
-      background:var(--btn-border); color:var(--bg);
+
+    /* ─── button-64 base & theme vars ──────────────────────────────────────── */
+    :root {
+      --btn-grad-dark:  linear-gradient(144deg, #0f0, #0c0 50%, #060);
+      --btn-grad-light: linear-gradient(144deg, #fff, #ddd 50%, #fff);
+      --btn-shadow-dark: rgba(0,255,0,0.2) 0 15px 30px -5px;
+      --btn-shadow-light: rgba(0,0,0,0.2) 0 15px 30px -5px;
+    }
+    body:not([data-theme="light"]) .button-64 {
+      background-image: var(--btn-grad-dark);
+      box-shadow: var(--btn-shadow-dark);
+      color: #0f0;
+    }
+    body[data-theme="light"] .button-64 {
+      background-image: var(--btn-grad-light);
+      box-shadow: var(--btn-shadow-light);
+      color: #000;
+    }
+
+    /* ─── button-64 core styling ───────────────────────────────────────────── */
+    .button-64 {
+      font-family: 'Orbitron', sans-serif;
+      display: flex; align-items:center; justify-content:center;
+      border: none; border-radius:8px; cursor:pointer;
+      overflow:hidden; position:relative; min-width:140px;
+      padding:0; transition:all .3s ease;
+    }
+    .button-64 .text {
+      display:block; width:100%; padding:16px 24px;
+      background-color: rgba(0,0,0,0.8); border-radius:6px;
+      transition:background .3s ease; font-size:1rem; line-height:1;
+    }
+    body[data-theme="light"] .button-64 .text {
+      background-color: #fff;
+    }
+    body[data-theme="light"] .button-64:hover .text {
+      background-color: #000;
+      color: #fff;
+    }
+    .button-64:hover .text {
+      background: none;
+    }
+    .button-64:focus {
+      outline: none;
+    }
+    @media (min-width:768px) {
+      .button-64 .text {
+        font-size:1.25rem; padding:20px 28px;
+      }
     }
 
     /* ─── Grid & Cells ───────────────────────────────────────────────────── */
@@ -180,10 +230,11 @@ TEMPLATE = '''
       opacity:1; transform:scale(1);
     }
     #msg p {
-      margin-bottom: 1rem;          /* space between paragraphs */
+      margin-bottom: 1rem;
     }
   </style>
 </head>
+
 <body data-theme="">
   <div id="app">
     <header>
@@ -209,8 +260,13 @@ TEMPLATE = '''
       </div>
 
       <div class="controls-vertical">
-        <button id="btnGen">Generate</button>
-        <button id="btnAns">Answer</button>
+        <!-- modern button-64 markup -->
+        <button id="btnGen" class="button-64" role="button">
+          <span class="text">Generate</span>
+        </button>
+        <button id="btnAns" class="button-64" role="button">
+          <span class="text">Answer</span>
+        </button>
       </div>
     </div>
   </div>
@@ -228,142 +284,125 @@ TEMPLATE = '''
   </div>
 
   <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      const char_pool = {{ char_pool|tojson }};
-      const rows = {{rows}}, cols = {{cols}};
-      let current = null;
+  document.addEventListener('DOMContentLoaded', () => {
+    const char_pool = {{ char_pool|tojson }};
+    const rows = {{rows}}, cols = {{cols}};
+    let current = null;
 
-      // theme helpers
-      function isLight() {
-        return document.body.dataset.theme === 'light';
-      }
-      function applyTheme(light) {
-        document.body.dataset.theme = light ? 'light' : '';
-        ['themeToggle','themeToggleOverlay'].forEach(id => {
-          const btn = document.getElementById(id);
-          btn.classList.toggle('pressed', light);
-          btn.setAttribute('aria-pressed', light);
-        });
-      }
-
-      // wire up toggles
+    // theme helpers
+    function isLight() {
+      return document.body.dataset.theme === 'light';
+    }
+    function applyTheme(light) {
+      document.body.dataset.theme = light ? 'light' : '';
       ['themeToggle','themeToggleOverlay'].forEach(id => {
-        document.getElementById(id)
-          .addEventListener('click', () => {
-            const light = !isLight();
-            localStorage.setItem('theme', light ? 'light' : '');
-            applyTheme(light);
-          });
+        const btn = document.getElementById(id);
+        btn.classList.toggle('pressed', light);
+        btn.setAttribute('aria-pressed', light);
       });
+    }
 
-      // initialize
-      applyTheme(localStorage.getItem('theme') === 'light');
-      document.getElementById('btnGen').click();
-
-      // fetch pattern
-      async function fetchPattern() {
-        const res = await fetch('/generate');
-        return current = await res.json();
-      }
-
-      // draw grids + random glitch
-      async function generateGrid() {
-        const info = await fetchPattern();
-        info.glitchDevice = Math.random() < 0.5 ? 'ipad' : 'iphone';
-
-        ['ipad','iphone'].forEach(dev => {
-          const grid = document.getElementById('grid-'+dev);
-          grid.innerHTML = '';
-          info.pattern.forEach((row, r) => {
-            row.forEach((ch, c) => {
-              const cell = document.createElement('div');
-              cell.className = 'cell';
-              cell.textContent = ch;
-              if (
-                dev === info.glitchDevice &&
-                r === info.target[0] &&
-                c === info.target[1]
-              ) {
-                cell.style.transform = `rotate(${info.angle.toFixed(1)}deg)`;
-              }
-              grid.appendChild(cell);
-            });
-          });
-        });
-
-        // hide any prior overlay
-        document.getElementById('overlay').style.display = 'none';
-        document.getElementById('msg').classList.remove('visible');
-        document.getElementById('btnAns').disabled = false;
-      }
-      document.getElementById('btnGen').addEventListener('click', generateGrid);
-
-      // highlight on Answer
-      document.getElementById('btnAns').addEventListener('click', () => {
-        if (!current) return;
-        const dev = current.glitchDevice;
-        const cells = document.getElementById('grid-'+dev).children;
-        Array.from(cells).forEach(c => c.classList.remove('highlight'));
-        const idx = current.target[0]*cols + current.target[1];
-        cells[idx].classList.add('highlight');
+    // wire up toggles
+    ['themeToggle','themeToggleOverlay'].forEach(id => {
+      document.getElementById(id).addEventListener('click', () => {
+        const light = !isLight();
+        localStorage.setItem('theme', light ? 'light' : '');
+        applyTheme(light);
       });
-
-      // click-to-show overlay
-      ['ipad','iphone'].forEach(dev => {
-        document.getElementById('grid-'+dev)
-          .addEventListener('click', e => {
-            if (!e.target.classList.contains('cell') || !current) return;
-            if (dev !== current.glitchDevice) return;
-            const idx = [...e.target.parentNode.children].indexOf(e.target);
-            if (idx === current.target[0]*cols + current.target[1]) {
-              showOverlay();
-            }
-          });
-      });
-
-      // MATRIX RAIN
-      const canvas = document.getElementById('matCanvas'),
-            ctx    = canvas.getContext('2d');
-      let drops = [], colCount = 0, fontSize = 16;
-
-      function initMatrix() {
-        canvas.width  = window.innerWidth;
-        canvas.height = window.innerHeight;
-        colCount = Math.floor(canvas.width / fontSize);
-        drops    = Array(colCount).fill(0);
-      }
-      function drawMatrix() {
-        const fade = isLight()
-          ? 'rgba(255,255,255,0.1)'
-          : 'rgba(0,0,0,0.1)';
-        ctx.fillStyle = fade;
-        ctx.fillRect(0,0,canvas.width,canvas.height);
-        const fg = getComputedStyle(document.documentElement)
-                     .getPropertyValue('--fg').trim();
-        ctx.fillStyle = fg;
-        ctx.font = fontSize + 'px monospace';
-        for (let i=0; i<colCount; i++) {
-          const txt = char_pool[
-            Math.floor(Math.random()*char_pool.length)
-          ];
-          const x = i*fontSize, y = drops[i]*fontSize;
-          ctx.fillText(txt, x, y);
-          drops[i] += 8;
-          if (y > canvas.height && Math.random() > .975) drops[i] = 0;
-        }
-        requestAnimationFrame(drawMatrix);
-      }
-      function showOverlay() {
-        document.getElementById('overlay').style.display = 'flex';
-        initMatrix();
-        drawMatrix();
-        setTimeout(()=>
-          document.getElementById('msg').classList.add('visible'),
-        600);
-      }
-      window.addEventListener('resize', initMatrix);
-
     });
+
+    // init
+    applyTheme(localStorage.getItem('theme') === 'light');
+    document.getElementById('btnGen').click();
+
+    // fetch pattern
+    async function fetchPattern() {
+      const res = await fetch('/generate');
+      return current = await res.json();
+    }
+
+    // draw + glitch
+    async function generateGrid() {
+      const info = await fetchPattern();
+      info.glitchDevice = Math.random() < 0.5 ? 'ipad' : 'iphone';
+
+      ['ipad','iphone'].forEach(dev => {
+        const grid = document.getElementById('grid-'+dev);
+        grid.innerHTML = '';
+        info.pattern.forEach((row, r) =>
+          row.forEach((ch, c) => {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            cell.textContent = ch;
+            if (dev===info.glitchDevice && r===info.target[0] && c===info.target[1]) {
+              cell.style.transform = `rotate(${info.angle.toFixed(1)}deg)`;
+            }
+            grid.appendChild(cell);
+          })
+        );
+      });
+
+      document.getElementById('overlay').style.display = 'none';
+      document.getElementById('msg').classList.remove('visible');
+      document.getElementById('btnAns').disabled = false;
+    }
+    document.getElementById('btnGen').addEventListener('click', generateGrid);
+
+    // answer
+    document.getElementById('btnAns').addEventListener('click', () => {
+      if (!current) return;
+      const dev = current.glitchDevice;
+      const cells = document.getElementById('grid-'+dev).children;
+      Array.from(cells).forEach(c => c.classList.remove('highlight'));
+      const idx = current.target[0]*cols + current.target[1];
+      cells[idx].classList.add('highlight');
+    });
+
+    // click-to-overlay
+    ['ipad','iphone'].forEach(dev => {
+      document.getElementById('grid-'+dev).addEventListener('click', e => {
+        if (!e.target.classList.contains('cell') || !current) return;
+        if (dev !== current.glitchDevice) return;
+        const idx = [...e.target.parentNode.children].indexOf(e.target);
+        if (idx === current.target[0]*cols + current.target[1]) {
+          showOverlay();
+        }
+      });
+    });
+
+    // MATRIX RAIN
+    const canvas = document.getElementById('matCanvas'),
+          ctx    = canvas.getContext('2d');
+    let drops = [], colCount = 0, fontSize = 16;
+
+    function initMatrix() {
+      canvas.width  = window.innerWidth;
+      canvas.height = window.innerHeight;
+      colCount = Math.floor(canvas.width / fontSize);
+      drops    = Array(colCount).fill(0);
+    }
+    function drawMatrix() {
+      const fade = isLight() ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+      ctx.fillStyle = fade; ctx.fillRect(0,0,canvas.width,canvas.height);
+      const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim();
+      ctx.fillStyle = fg; ctx.font = fontSize + 'px monospace';
+      for (let i=0; i<colCount; i++) {
+        const txt = char_pool[Math.floor(Math.random()*char_pool.length)];
+        const x = i*fontSize, y = drops[i]*fontSize;
+        ctx.fillText(txt, x, y);
+        drops[i] += 8;
+        if (y > canvas.height && Math.random() > .975) drops[i] = 0;
+      }
+      requestAnimationFrame(drawMatrix);
+    }
+    function showOverlay() {
+      document.getElementById('overlay').style.display = 'flex';
+      initMatrix(); drawMatrix();
+      setTimeout(() => document.getElementById('msg').classList.add('visible'), 600);
+    }
+    window.addEventListener('resize', initMatrix);
+
+  });
   </script>
 </body>
 </html>
@@ -385,7 +424,6 @@ def generate():
       [random.choice(char_pool) for _ in range(cols)]
       for _ in range(rows)
     ]
-
     # center-bias weights
     weights = [
       1/(((r-(rows-1)/2)**2 + (c-(cols-1)/2)**2)+1)
@@ -393,7 +431,6 @@ def generate():
     ]
     idx = random.choices(range(rows*cols), weights)[0]
     tr, tc = divmod(idx, cols)
-
     # pick a big enough rotation
     while True:
       angle = random.uniform(-rot_max, rot_max)
